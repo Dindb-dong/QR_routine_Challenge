@@ -4,7 +4,7 @@ self.addEventListener('push', function(event) {
   
   let notificationData = {
     title: '루틴 챌린지 알림',
-    body: '오늘의 출석체크를 잊지 마세요! 🐑',
+    body: '오늘의 출석체크를 잊지 마세요!',
     icon: '/logo192.png',
     badge: '/logo192.png',
     vibrate: [200, 100, 200],

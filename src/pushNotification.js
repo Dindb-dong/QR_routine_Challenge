@@ -148,7 +148,7 @@ export function scheduleNextDayNotification(lastAttendanceDate) {
   const notificationInfo = {
     scheduledTime: nextDate.getTime(),
     lastAttendanceDate: lastAttendanceDate,
-    message: '오늘의 출석체크를 잊지 마세요! 🐑'
+    message: '오늘의 출석체크를 잊지 마세요!'
   };
   localStorage.setItem('scheduled_notification', JSON.stringify(notificationInfo));
   
@@ -167,7 +167,7 @@ export function scheduleNextDayNotification(lastAttendanceDate) {
 function sendLocalNotification() {
   if (Notification.permission === 'granted') {
     const notification = new Notification('루틴 챌린지 알림', {
-      body: '오늘의 출석체크를 잊지 마세요! 🐑',
+      body: '오늘의 출석체크를 잊지 마세요!',
       icon: '/logo192.png',
       badge: '/logo192.png',
       vibrate: [200, 100, 200],
@@ -201,7 +201,7 @@ export function sendSimpleNotification() {
 
   try {
     const notification = new Notification('간단한 테스트 알림', {
-      body: '이것은 가장 기본적인 알림입니다! 🐑',
+      body: '이것은 가장 기본적인 알림입니다!',
       icon: '/logo192.png',
       requireInteraction: false
     });
@@ -259,7 +259,7 @@ export async function sendTestNotification() {
     
     // 알림 옵션 설정 (Service Worker 알림용으로 최적화)
     const notificationOptions = {
-      body: '이것은 Service Worker 테스트 알림입니다! 🐑',
+      body: '이것은 Service Worker 테스트 알림입니다!',
       icon: '/logo192.png',
       badge: '/logo192.png',
       vibrate: [200, 100, 200],
@@ -322,7 +322,7 @@ export async function sendTestNotification() {
     try {
       console.log('Service Worker 실패, 일반 알림으로 시도...');
       const notification = new Notification('테스트 알림 (일반)', {
-        body: '이것은 일반 Notification API로 보낸 테스트 알림입니다! 🐑',
+        body: '이것은 일반 Notification API로 보낸 테스트 알림입니다!',
         icon: '/logo192.png',
         badge: '/logo192.png',
         vibrate: [200, 100, 200],
