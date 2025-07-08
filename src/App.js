@@ -81,6 +81,24 @@ function getLastAttendanceDate(stamps) {
   return stamps.sort().pop(); // 가장 최근 날짜 반환
 }
 
+// 기기/브라우저 감지 함수
+function getDeviceAlertMessage() {
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) {
+    // iOS 사파리
+    return "iOS 사파리에서는 웹사이트를 '홈 화면에 추가'한 후 알림을 허용해야 푸시 알림을 받을 수 있습니다.";
+  } else if (/SamsungBrowser/.test(ua)) {
+    // 삼성 인터넷 브라우저
+    return "삼성 인터넷 브라우저에서는 브라우저 설정 > 사이트 및 다운로드 > 알림에서 알림을 허용해주세요.";
+  } else if (/Android/.test(ua) && /Chrome/.test(ua)) {
+    // 안드로이드 크롬
+    return "안드로이드 크롬에서는 브라우저 설정 > 사이트 설정 > 알림에서 알림을 허용해주세요.";
+  } else {
+    // 기타
+    return "사용하시는 브라우저의 알림 설정을 확인해주세요.";
+  }
+}
+
 function App() {
   const [stamps, setStamps] = useState([]); // ['YYYY-MM-DD', ...]
   const [today, setToday] = useState('');
@@ -240,6 +258,8 @@ function App() {
 
   // 알림 권한 요청 핸들러
   const handleRequestNotificationPermission = async () => {
+    // 기기별 안내 메시지 alert
+    alert(getDeviceAlertMessage());
     const hasPermission = await requestNotificationPermission();
     setNotificationPermission(hasPermission ? 'granted' : 'denied');
   };
