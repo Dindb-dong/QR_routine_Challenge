@@ -86,10 +86,10 @@ function getDeviceAlertMessage() {
   const ua = navigator.userAgent;
   if (/iPhone|iPad|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) {
     // iOS 사파리
-    return "iOS 사파리에서는 웹사이트를 '홈 화면에 추가'한 후 알림을 허용해야 푸시 알림을 받을 수 있습니다.";
+    return "iOS 사파리에서는 페이지 하단의 '공유' 버튼 클릭 후,\n웹사이트를 '홈 화면에 추가'한 후 알림을 허용해야 \n푸시 알림을 받을 수 있습니다.";
   } else if (/SamsungBrowser/.test(ua)) {
     // 삼성 인터넷 브라우저
-    return "삼성 인터넷 브라우저에서는 브라우저 설정 > 사이트 및 다운로드 > 알림에서 알림을 허용해주세요.";
+    return "삼성 인터넷 브라우저에서는 우측 하단의 설정 > 알림에서 알림을 허용해주세요.";
   } else if (/Android/.test(ua) && /Chrome/.test(ua)) {
     // 안드로이드 크롬
     return "안드로이드 크롬에서는 브라우저 설정 > 사이트 설정 > 알림에서 알림을 허용해주세요.";
