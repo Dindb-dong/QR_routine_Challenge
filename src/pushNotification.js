@@ -122,17 +122,22 @@ export async function unsubscribeFromPushNotifications() {
   }
 }
 
-// 다음 날 알림 스케줄링
-export function scheduleNextDayNotification(lastAttendanceDate) {
-  if (!lastAttendanceDate) return;
+// 스탬프 객체 마이그레이션 함수
+function migrateStamps(stamps) {
+  return stamps.map(s => {
+    if (typeof s === 'string') {
+      return { date: s, hour: '00', minute: '00' };
+    }
+    return s;
+  });
+}
 
-  const lastDate = new Date(lastAttendanceDate);
+// 다음 날 알림 스케줄링
+export function scheduleNextDayNotification(lastAttendance) {
+  if (!lastAttendance) return;
+  const lastDate = new Date(lastAttendance.date);
   const nextDate = new Date(lastDate);
   nextDate.setDate(nextDate.getDate() + 1);
-  
-  // 다음 날 오후 8시로 설정
-  nextDate.setHours(20, 0, 0, 0);
-  
   const now = new Date();
   const timeUntilNotification = nextDate.getTime() - now.getTime();
   
@@ -141,13 +146,9 @@ export function scheduleNextDayNotification(lastAttendanceDate) {
     console.log('알림 시간이 이미 지났습니다');
     return;
   }
-
-  console.log(`다음 알림 예정: ${nextDate.toLocaleString()}`);
-  
-  // 알림 정보를 로컬 스토리지에 저장
   const notificationInfo = {
     scheduledTime: nextDate.getTime(),
-    lastAttendanceDate: lastAttendanceDate,
+    lastAttendance: lastAttendance,
     message: '오늘의 출석체크를 잊지 마세요!'
   };
   localStorage.setItem('scheduled_notification', JSON.stringify(notificationInfo));
@@ -182,14 +183,12 @@ function sendLocalNotification() {
 }
 
 // 출석체크 후 다음 날 알림 설정
-export function setupNextDayNotificationAfterCheck(today) {
+export function setupNextDayNotificationAfterCheck(stampObj) {
   // 기존 타이머 클리어
   if (window.notificationTimer) {
     clearTimeout(window.notificationTimer);
   }
-  
-  // 다음 날 알림 스케줄링
-  scheduleNextDayNotification(today);
+  scheduleNextDayNotification(stampObj);
 }
 
 // 간단한 테스트 알림 (Service Worker 없이)
@@ -380,7 +379,7 @@ export async function checkNotificationSettings() {
   }
   
   // 운영체제 알림 설정 확인 (macOS)
-  if (navigator.platform.includes('Mac')) {
+  if (navigator.userAgent.includes('Mac')) {
     console.log('macOS 알림 설정 확인 필요:');
     console.log('1. 시스템 환경설정 > 알림 및 포커스');
     console.log('2. 브라우저 알림 허용 확인');
@@ -461,14 +460,13 @@ export async function initializeNotifications() {
         localStorage.removeItem('scheduled_notification');
       }
     }
-    
-    // 마지막 출석 날짜 확인하여 알림 재설정
-    const stamps = JSON.parse(localStorage.getItem('night_routine_stamps_v6') || '[]');
+    let stamps = JSON.parse(localStorage.getItem('night_routine_stamps_v6') || '[]');
+    stamps = migrateStamps(stamps);
+    localStorage.setItem('night_routine_stamps_v6', JSON.stringify(stamps));
     if (stamps.length > 0) {
-      const lastAttendance = stamps.sort().pop();
+      const lastAttendance = stamps.slice().sort((a, b) => a.date.localeCompare(b.date)).pop();
       setupNextDayNotificationAfterCheck(lastAttendance);
     }
   }
-  
   return hasPermission;
 } 

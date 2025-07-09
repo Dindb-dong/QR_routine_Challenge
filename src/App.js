@@ -7,17 +7,19 @@ import {
   sendTestNotification,
   sendSimpleNotification,
   forceRefreshServiceWorker,
-  checkNotificationSettings
+  checkNotificationSettings,
+  unsubscribeFromPushNotifications // 추가
 } from './pushNotification';
 
 // 인터넷 시간(NTP API) 가져오기
 async function fetchInternetDate() {
   try {
     // 1순위: timeapi.io
-    const res = await fetch('https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul');
+    const url = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul";
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      console.log('timeapi.io', data);
+      console.log('timeapi.io', data); // 여기에 year, month, day, hour, minute 등 모두 찍어보세요
       // year, month, day 필드를 조합해 YYYY-MM-DD로 반환
       if (data.year && data.month && data.day) {
         const yyyy = String(data.year);
@@ -39,7 +41,8 @@ async function fetchInternetDate() {
       throw new Error('worldtimeapi failed');
     } catch {
       // 3순위: 로컬 시간 fallback
-      return new Date().toISOString().slice(0, 10);
+      const now = new Date().toISOString().slice(0, 10);
+      return now;
     }
   }
 }
@@ -78,7 +81,7 @@ function isConsecutive(date1, date2) {
 // 가장 최근 출석 날짜 찾기
 function getLastAttendanceDate(stamps) {
   if (stamps.length === 0) return null;
-  return stamps.sort().pop(); // 가장 최근 날짜 반환
+  return stamps.slice().sort((a, b) => a.date.localeCompare(b.date)).pop();
 }
 
 // 기기/브라우저 감지 함수
@@ -99,6 +102,16 @@ function getDeviceAlertMessage() {
   }
 }
 
+// 스탬프 객체 마이그레이션 함수
+function migrateStamps(stamps) {
+  return stamps.map(s => {
+    if (typeof s === 'string') {
+      return { date: s, hour: '00', minute: '00' };
+    }
+    return s;
+  });
+}
+
 function App() {
   const [stamps, setStamps] = useState([]); // ['YYYY-MM-DD', ...]
   const [today, setToday] = useState('');
@@ -116,6 +129,13 @@ function App() {
 
   // 날짜 불러오기 및 초기 월 설정
   useEffect(() => {
+    // Service Worker가 현재 페이지를 제어하지 않으면 자동 새로고침 (최초 1회만)
+    if ('serviceWorker' in navigator) {
+      if (!navigator.serviceWorker.controller && !localStorage.getItem('sw_auto_reloaded')) {
+        localStorage.setItem('sw_auto_reloaded', '1');
+        window.location.reload();
+      }
+    }
     fetchInternetDate().then(date => {
       setToday(date);
       const [y, m] = date.split('-');
@@ -123,15 +143,18 @@ function App() {
       setViewMonth(Number(m) - 1);
       setLoading(false);
     });
-    const saved = JSON.parse(localStorage.getItem(STAMP_KEY) || '[]');
+    let saved = JSON.parse(localStorage.getItem(STAMP_KEY) || '[]');
+    saved = migrateStamps(saved);
+    localStorage.setItem(STAMP_KEY, JSON.stringify(saved));
     const failed = localStorage.getItem(CHALLENGE_FAILED_KEY) === 'true';
     setStamps(saved);
     setChallengeFailed(failed);
-    
-    // 알림 권한 확인 및 초기화
-    initializeNotifications().then(hasPermission => {
-      setNotificationPermission(hasPermission ? 'granted' : 'denied');
-    });
+    // 알림 권한 확인 및 초기화 (개발 환경에서만)
+    if (process.env.NODE_ENV !== 'production') {
+      initializeNotifications().then(hasPermission => {
+        setNotificationPermission(hasPermission ? 'granted' : 'denied');
+      });
+    }
   }, []);
 
   // 컨페티 생성 함수
@@ -176,7 +199,7 @@ function App() {
     }
     
     // 이미 오늘 출석한 경우
-    if (stamps.includes(today)) {
+    if (stamps.some(s => s.date === today)) {
       setMessage('오늘은 이미 출석체크를 하셨습니다!');
       return;
     }
@@ -184,22 +207,28 @@ function App() {
     const lastAttendance = getLastAttendanceDate(stamps);
     
     // 첫 출석이거나 연속 출석인 경우
-    if (!lastAttendance || isConsecutive(lastAttendance, today)) {
+    if (!lastAttendance || isConsecutive(lastAttendance.date, today)) {
       // 버튼 팡 효과
       setButtonClicked(true);
       setTimeout(() => setButtonClicked(false), 600);
       
       // 컨페티 애니메이션
       createConfetti();
-      
-      const updated = [...stamps, today];
+      const now = new Date();
+      const stampObj = {
+        date: today,
+        hour: String(now.getHours()).padStart(2, '0'),
+        minute: String(now.getMinutes()).padStart(2, '0')
+      };
+      const existingStamps = migrateStamps(JSON.parse(localStorage.getItem(STAMP_KEY) || '[]'));
+      const updated = [...existingStamps, stampObj];
       setStamps(updated);
       console.log('updated', updated);
       localStorage.setItem(STAMP_KEY, JSON.stringify(updated));
       setMessage('출석체크 완료! 🎉');
       
       // 다음 날 알림 설정
-      setupNextDayNotificationAfterCheck(today);
+      setupNextDayNotificationAfterCheck(stampObj);
     } else {
       // 연속 출석이 끊어진 경우 - 챌린지 실패
       setChallengeFailed(true);
@@ -227,8 +256,10 @@ function App() {
   // 오늘 날짜(YYYY-MM-DD)와 달력의 날짜(숫자)를 비교해 오늘 표시
   const isToday = (d) => {
     if (!d) return false;
-    const [y, m, day] = today.split('-');
-    return Number(y) === viewYear && Number(m) === viewMonth + 1 && Number(day) === d;
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    const dateStr = `${viewYear}-${mm}-${dd}`;
+    return today === dateStr;
   };
 
   // 해당 날짜에 스탬프가 있는지
@@ -237,11 +268,11 @@ function App() {
     const mm = String(viewMonth + 1).padStart(2, '0');
     const dd = String(d).padStart(2, '0');
     const dateStr = `${viewYear}-${mm}-${dd}`;
-    return stamps.includes(dateStr);
+    return stamps.some(s => s.date === dateStr);
   };
 
   // 오늘 출석 여부
-  const checkedToday = stamps.includes(today);
+  const checkedToday = stamps.some(s => s.date === today);
 
   // 14개 이상 스탬프 조건
   const canShowEntry = !challengeFailed && stamps.length >= 1;
@@ -291,6 +322,28 @@ function App() {
     setMessage(`알림 설정 확인 완료! 권한: ${settings.permission}, SW: ${settings.serviceWorker ? '활성' : '비활성'}`);
   };
 
+  // 로컬 스탬프 정보 출력 핸들러
+  const handleShowLocalStamps = () => {
+    const stamps = localStorage.getItem(STAMP_KEY);
+    alert(stamps ? stamps : '스탬프 정보 없음');
+  };
+
+  // 알림 거부 핸들러
+  const handleUnsubscribeNotifications = async () => {
+    await unsubscribeFromPushNotifications();
+    setNotificationPermission('denied');
+    setMessage('알림이 해제되었습니다.');
+  };
+
+  // 오늘 출석 삭제 핸들러
+  const handleRemoveTodayStamp = () => {
+    let stamps = JSON.parse(localStorage.getItem(STAMP_KEY) || '[]');
+    stamps = migrateStamps(stamps).filter(s => s.date !== today);
+    localStorage.setItem(STAMP_KEY, JSON.stringify(stamps));
+    setStamps(stamps);
+    setMessage('오늘 출석 스탬프가 삭제되었습니다.');
+  };
+
   // 날짜 정보가 준비되지 않았으면 달력 렌더링 X
   if (
     loading ||
@@ -301,7 +354,7 @@ function App() {
     return (
       <div className="App">
         <header className="App-header">
-          <div className="loading">로딩 중...</div>
+          <div className="loading">로딩 중...<br/> 조금 오래 걸려도 기다려주세요!</div>
         </header>
       </div>
     );
@@ -337,7 +390,7 @@ function App() {
         )}
         
         <div className="attendance-count">
-          {loading ? '로딩 중...' : `이 달의 출석 횟수 ${stamps.filter(s => s.startsWith(`${viewYear}-${String(viewMonth+1).padStart(2,'0')}`)).length}회`}
+          {loading ? '로딩 중...' : `이 달의 출석 횟수 ${stamps.filter(s => s.date.startsWith(`${viewYear}-${String(viewMonth+1).padStart(2,'0')}`)).length}회`}
         </div>
         <div className="month-navigation">
           <button onClick={() => moveMonth(-1)} className="month-btn">◀</button>
@@ -384,8 +437,8 @@ function App() {
           </button>
         )}
         
-        {/* 알림 권한 요청 버튼 */}
-        {notificationPermission !== 'granted' && (
+        {/* 알림 권한 요청 버튼 (개발 환경에서만) */}
+        {process.env.NODE_ENV !== 'production' && notificationPermission !== 'granted' && (
           <button 
             className="notification-permission-button" 
             onClick={handleRequestNotificationPermission}
@@ -393,7 +446,8 @@ function App() {
             🔔 알림 받기
           </button>
         )}
-        {notificationPermission === 'granted' && (
+        {/* 알림 상태/테스트/거부 버튼 (개발 환경에서만) */}
+        {process.env.NODE_ENV !== 'production' && notificationPermission === 'granted' && (
           <div className="notification-status">
             ✅ 알림이 설정되었습니다
             <div style={{ marginTop: '10px', display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -424,6 +478,27 @@ function App() {
                 style={{ padding: '5px 10px', fontSize: '12px' }}
               >
                 설정확인
+              </button>
+              <button
+                className="test-notification-button"
+                onClick={handleShowLocalStamps}
+                style={{ padding: '5px 10px', fontSize: '12px', background: '#ffe4e8', color: '#ff6b9d' }}
+              >
+                로컬 스탬프 정보 출력
+              </button>
+              <button
+                className="test-notification-button"
+                onClick={handleUnsubscribeNotifications}
+                style={{ padding: '5px 10px', fontSize: '12px', background: '#ffe4e8', color: '#ff4757' }}
+              >
+                알림 거부
+              </button>
+              <button
+                className="test-notification-button"
+                onClick={handleRemoveTodayStamp}
+                style={{ padding: '5px 10px', fontSize: '12px', background: '#ffe4e8', color: '#888' }}
+              >
+                오늘 출석 삭제
               </button>
             </div>
           </div>
