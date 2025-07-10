@@ -11,42 +11,55 @@ import './App.css';
 //   unsubscribeFromPushNotifications // 추가
 // } from './pushNotification';
 
-// 인터넷 시간(NTP API) 가져오기
-async function fetchInternetDate(maxRetries = 10, retryDelay = 2000, onAttempt) {
+// B: timeapi.io 1회 요청
+async function fetchTimeApiOnce() {
+  try {
+    const res = await fetch('https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul');
+    if (res.ok) {
+      const data = await res.json();
+      console.log('timeapi.io', data);
+      if (data.year && data.month && data.day) {
+        return `${data.year}-${String(data.month).padStart(2, '0')}-${String(data.day).padStart(2, '0')}`;
+      }
+    }
+    throw new Error();
+  } catch {
+    throw new Error('timeapi.io failed');
+  }
+}
+
+// C: worldtimeapi.org 10회 재시도
+async function fetchWorldTimeApiWithRetry(maxRetries = 10, retryDelay = 2000, onAttempt) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     if (onAttempt) onAttempt(attempt);
     try {
-      const worldtime = fetch('https://worldtimeapi.org/api/timezone/Asia/Seoul')
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then(data => {
-          console.log('worldtimeapi.org', data);
-          return data.datetime.slice(0, 10);
-        });
-
-      const timeapi = fetch('https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul')
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then(data => {
-          console.log('timeapi.io', data);
-          if (data.year && data.month && data.day) {
-            return `${data.year}-${String(data.month).padStart(2, '0')}-${String(data.day).padStart(2, '0')}`;
-          }
-          throw new Error();
-        });
-
-      const result = await Promise.race([
-        worldtime.catch(() => Promise.reject()),
-        timeapi.catch(() => Promise.reject())
-      ]);
-      return result;
-    } catch (e) {
-      const finalTime = new Date().toISOString().slice(0, 10);
-      console.log(`date fetch failed (attempt ${attempt}/${maxRetries}), retrying in 2s. Using local time for now:`, finalTime);
+      const res = await fetch('https://worldtimeapi.org/api/timezone/Asia/Seoul');
+      if (res.ok) {
+        const data = await res.json();
+        console.log('worldtimeapi.org', data);
+        return data.datetime.slice(0, 10);
+      }
+      throw new Error();
+    } catch {
       if (attempt < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, retryDelay));
-      } else {
-        return finalTime;
       }
     }
+  }
+  throw new Error('worldtimeapi.org failed');
+}
+
+// A: 둘을 동시에 실행, 먼저 성공한 것 반환
+async function fetchInternetDateRace(onAttempt) {
+  try {
+    return await Promise.any([
+      fetchWorldTimeApiWithRetry(10, 2000, onAttempt),
+      fetchTimeApiOnce()
+    ]);
+  } catch {
+    const finalTime = new Date().toISOString().slice(0, 10);
+    console.log('모든 인터넷 시간 API 실패, 로컬 시간 사용:', finalTime);
+    return finalTime;
   }
 }
 
@@ -140,7 +153,7 @@ function App() {
         window.location.reload();
       }
     }
-    fetchInternetDate(10, 2000, setFetchAttempt).then(date => {
+    fetchInternetDateRace(setFetchAttempt).then(date => {
       setToday(date);
       const [y, m] = date.split('-');
       setViewYear(Number(y));
