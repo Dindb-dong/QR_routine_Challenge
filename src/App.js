@@ -53,12 +53,13 @@ async function fetchWorldTimeApiWithRetry(maxRetries = 10, retryDelay = 2000, on
 async function fetchInternetDateRace(onAttempt) {
   try {
     return await Promise.any([
-      fetchWorldTimeApiWithRetry(10, 2000, onAttempt),
+      fetchWorldTimeApiWithRetry(10, 3000, onAttempt),
       fetchTimeApiOnce()
     ]);
   } catch {
     const finalTime = new Date().toISOString().slice(0, 10);
     console.log('모든 인터넷 시간 API 실패, 로컬 시간 사용:', finalTime);
+    alert("새로고침을 시도해주세요 ㅠㅠ")
     return finalTime;
   }
 }
