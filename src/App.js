@@ -1,48 +1,51 @@
 import React, { useEffect, useState } from 'react';
 import './App.css';
-import { 
-  initializeNotifications, 
-  setupNextDayNotificationAfterCheck,
-  requestNotificationPermission,
-  sendTestNotification,
-  sendSimpleNotification,
-  forceRefreshServiceWorker,
-  checkNotificationSettings,
-  unsubscribeFromPushNotifications // 추가
-} from './pushNotification';
+// import { 
+//   initializeNotifications, 
+//   setupNextDayNotificationAfterCheck,
+//   requestNotificationPermission,
+//   sendTestNotification,
+//   sendSimpleNotification,
+//   forceRefreshServiceWorker,
+//   checkNotificationSettings,
+//   unsubscribeFromPushNotifications // 추가
+// } from './pushNotification';
 
 // 인터넷 시간(NTP API) 가져오기
-async function fetchInternetDate() {
-  try {
-    // 1순위: timeapi.io
-    const url = "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul";
-    const res = await fetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      console.log('timeapi.io', data); // 여기에 year, month, day, hour, minute 등 모두 찍어보세요
-      // year, month, day 필드를 조합해 YYYY-MM-DD로 반환
-      if (data.year && data.month && data.day) {
-        const yyyy = String(data.year);
-        const mm = String(data.month).padStart(2, '0');
-        const dd = String(data.day).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      }
-    }
-    throw new Error('timeapi.io failed');
-  } catch {
+async function fetchInternetDate(maxRetries = 10, retryDelay = 2000, onAttempt) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (onAttempt) onAttempt(attempt);
     try {
-      // 2순위: worldtimeapi.org
-      const res2 = await fetch('https://worldtimeapi.org/api/timezone/Asia/Seoul');
-      if (res2.ok) {
-        const data2 = await res2.json();
-        console.log('worldtimeapi.org', data2);
-        return data2.datetime.slice(0, 10); // 'YYYY-MM-DD'
+      const worldtime = fetch('https://worldtimeapi.org/api/timezone/Asia/Seoul')
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => {
+          console.log('worldtimeapi.org', data);
+          return data.datetime.slice(0, 10);
+        });
+
+      const timeapi = fetch('https://timeapi.io/api/Time/current/zone?timeZone=Asia/Seoul')
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => {
+          console.log('timeapi.io', data);
+          if (data.year && data.month && data.day) {
+            return `${data.year}-${String(data.month).padStart(2, '0')}-${String(data.day).padStart(2, '0')}`;
+          }
+          throw new Error();
+        });
+
+      const result = await Promise.race([
+        worldtime.catch(() => Promise.reject()),
+        timeapi.catch(() => Promise.reject())
+      ]);
+      return result;
+    } catch (e) {
+      const finalTime = new Date().toISOString().slice(0, 10);
+      console.log(`date fetch failed (attempt ${attempt}/${maxRetries}), retrying in 2s. Using local time for now:`, finalTime);
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        return finalTime;
       }
-      throw new Error('worldtimeapi failed');
-    } catch {
-      // 3순위: 로컬 시간 fallback
-      const now = new Date().toISOString().slice(0, 10);
-      return now;
     }
   }
 }
@@ -85,22 +88,22 @@ function getLastAttendanceDate(stamps) {
 }
 
 // 기기/브라우저 감지 함수
-function getDeviceAlertMessage() {
-  const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) {
-    // iOS 사파리
-    return "iOS 사파리에서는 페이지 하단의 '공유' 버튼 클릭 후,\n웹사이트를 '홈 화면에 추가'한 후 알림을 허용해야 \n푸시 알림을 받을 수 있습니다.";
-  } else if (/SamsungBrowser/.test(ua)) {
-    // 삼성 인터넷 브라우저
-    return "삼성 인터넷 브라우저에서는 우측 하단의 설정 > 알림에서 알림을 허용해주세요.";
-  } else if (/Android/.test(ua) && /Chrome/.test(ua)) {
-    // 안드로이드 크롬
-    return "안드로이드 크롬에서는 브라우저 설정 > 사이트 설정 > 알림에서 알림을 허용해주세요.";
-  } else {
-    // 기타
-    return "사용하시는 브라우저의 알림 설정을 확인해주세요.";
-  }
-}
+// function getDeviceAlertMessage() {
+//   const ua = navigator.userAgent;
+//   if (/iPhone|iPad|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS/.test(ua)) {
+//     // iOS 사파리
+//     return "iOS 사파리에서는 페이지 하단의 '공유' 버튼 클릭 후,\n웹사이트를 '홈 화면에 추가'한 후 알림을 허용해야 \n푸시 알림을 받을 수 있습니다.";
+//   } else if (/SamsungBrowser/.test(ua)) {
+//     // 삼성 인터넷 브라우저
+//     return "삼성 인터넷 브라우저에서는 우측 하단의 설정 > 알림에서 알림을 허용해주세요.";
+//   } else if (/Android/.test(ua) && /Chrome/.test(ua)) {
+//     // 안드로이드 크롬
+//     return "안드로이드 크롬에서는 브라우저 설정 > 사이트 설정 > 알림에서 알림을 허용해주세요.";
+//   } else {
+//     // 기타
+//     return "사용하시는 브라우저의 알림 설정을 확인해주세요.";
+//   }
+// }
 
 // 스탬프 객체 마이그레이션 함수
 function migrateStamps(stamps) {
@@ -125,7 +128,8 @@ function App() {
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [entryPhone, setEntryPhone] = useState('');
   const [showEntrySuccess, setShowEntrySuccess] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState('default');
+  //const [notificationPermission, setNotificationPermission] = useState('default');
+  const [fetchAttempt, setFetchAttempt] = useState(1);
 
   // 날짜 불러오기 및 초기 월 설정
   useEffect(() => {
@@ -136,7 +140,7 @@ function App() {
         window.location.reload();
       }
     }
-    fetchInternetDate().then(date => {
+    fetchInternetDate(10, 2000, setFetchAttempt).then(date => {
       setToday(date);
       const [y, m] = date.split('-');
       setViewYear(Number(y));
@@ -150,11 +154,11 @@ function App() {
     setStamps(saved);
     setChallengeFailed(failed);
     // 알림 권한 확인 및 초기화 (개발 환경에서만)
-    if (process.env.NODE_ENV !== 'production') {
-      initializeNotifications().then(hasPermission => {
-        setNotificationPermission(hasPermission ? 'granted' : 'denied');
-      });
-    }
+    // if (process.env.NODE_ENV !== 'production') {
+    //   initializeNotifications().then(hasPermission => {
+    //     setNotificationPermission(hasPermission ? 'granted' : 'denied');
+    //   });
+    // }
   }, []);
 
   // 컨페티 생성 함수
@@ -228,7 +232,7 @@ function App() {
       setMessage('출석체크 완료! 🎉');
       
       // 다음 날 알림 설정
-      setupNextDayNotificationAfterCheck(stampObj);
+      // setupNextDayNotificationAfterCheck(stampObj);
     } else {
       // 연속 출석이 끊어진 경우 - 챌린지 실패
       setChallengeFailed(true);
@@ -288,39 +292,39 @@ function App() {
   };
 
   // 알림 권한 요청 핸들러
-  const handleRequestNotificationPermission = async () => {
-    // 기기별 안내 메시지 alert
-    alert(getDeviceAlertMessage());
-    const hasPermission = await requestNotificationPermission();
-    setNotificationPermission(hasPermission ? 'granted' : 'denied');
-  };
+  // const handleRequestNotificationPermission = async () => {
+  //   // 기기별 안내 메시지 alert
+  //   alert(getDeviceAlertMessage());
+  //   const hasPermission = await requestNotificationPermission();
+  //   setNotificationPermission(hasPermission ? 'granted' : 'denied');
+  // };
 
   // 테스트 알림 전송 핸들러
-  const handleTestNotification = async () => {
-    await sendTestNotification();
-  };
+  // const handleTestNotification = async () => {
+  //   await sendTestNotification();
+  // };
 
   // 간단한 테스트 알림 핸들러
-  const handleSimpleNotification = () => {
-    sendSimpleNotification();
-  };
+  // const handleSimpleNotification = () => {
+  //   sendSimpleNotification();
+  // };
 
   // Service Worker 새로고침 핸들러
-  const handleRefreshServiceWorker = async () => {
-    const success = await forceRefreshServiceWorker();
-    if (success) {
-      setMessage('Service Worker가 새로고침되었습니다!');
-    } else {
-      setMessage('Service Worker 새로고침에 실패했습니다.');
-    }
-  };
+  // const handleRefreshServiceWorker = async () => {
+  //   const success = await forceRefreshServiceWorker();
+  //   if (success) {
+  //     setMessage('Service Worker가 새로고침되었습니다!');
+  //   } else {
+  //     setMessage('Service Worker 새로고침에 실패했습니다.');
+  //   }
+  // };
 
   // 알림 설정 확인 핸들러
-  const handleCheckNotificationSettings = async () => {
-    const settings = await checkNotificationSettings();
-    console.log('알림 설정 상태:', settings);
-    setMessage(`알림 설정 확인 완료! 권한: ${settings.permission}, SW: ${settings.serviceWorker ? '활성' : '비활성'}`);
-  };
+  // const handleCheckNotificationSettings = async () => {
+  //   const settings = await checkNotificationSettings();
+  //   console.log('알림 설정 상태:', settings);
+  //   setMessage(`알림 설정 확인 완료! 권한: ${settings.permission}, SW: ${settings.serviceWorker ? '활성' : '비활성'}`);
+  // };
 
   // 로컬 스탬프 정보 출력 핸들러
   const handleShowLocalStamps = () => {
@@ -329,11 +333,11 @@ function App() {
   };
 
   // 알림 거부 핸들러
-  const handleUnsubscribeNotifications = async () => {
-    await unsubscribeFromPushNotifications();
-    setNotificationPermission('denied');
-    setMessage('알림이 해제되었습니다.');
-  };
+  // const handleUnsubscribeNotifications = async () => {
+  //   await unsubscribeFromPushNotifications();
+  //   setNotificationPermission('denied');
+  //   setMessage('알림이 해제되었습니다.');
+  // };
 
   // 오늘 출석 삭제 핸들러
   const handleRemoveTodayStamp = () => {
@@ -354,7 +358,12 @@ function App() {
     return (
       <div className="App">
         <header className="App-header">
-          <div className="loading">로딩 중...<br/> 조금 오래 걸려도 기다려주세요!</div>
+          <div className="loading">
+            <img src="/poami_bounce.gif" alt="로딩 중" style={{ width: 120, marginBottom: 16 }} />
+            로딩 중...<br/>
+            {`인터넷 시간 불러오는 중 (${fetchAttempt}/10)`}
+            <br/>조금 오래 걸려도 기다려주세요!
+          </div>
         </header>
       </div>
     );
@@ -438,20 +447,21 @@ function App() {
         )}
         
         {/* 알림 권한 요청 버튼 (개발 환경에서만) */}
-        {process.env.NODE_ENV !== 'production' && notificationPermission !== 'granted' && (
+        {/* {process.env.NODE_ENV !== 'production' && notificationPermission !== 'granted' && (
           <button 
             className="notification-permission-button" 
             onClick={handleRequestNotificationPermission}
           >
             🔔 알림 받기
           </button>
-        )}
+        )} */}
         {/* 알림 상태/테스트/거부 버튼 (개발 환경에서만) */}
-        {process.env.NODE_ENV !== 'production' && notificationPermission === 'granted' && (
+        {/* notificationPermission === 'granted' && */}
+        {process.env.NODE_ENV !== 'production' &&  (
           <div className="notification-status">
             ✅ 알림이 설정되었습니다
             <div style={{ marginTop: '10px', display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button 
+              {/* <button 
                 className="test-notification-button" 
                 onClick={handleSimpleNotification}
                 style={{ padding: '5px 10px', fontSize: '12px' }}
@@ -464,8 +474,8 @@ function App() {
                 style={{ padding: '5px 10px', fontSize: '12px' }}
               >
                 SW테스트
-              </button>
-              <button 
+              </button> */}
+              {/* <button 
                 className="test-notification-button" 
                 onClick={handleRefreshServiceWorker}
                 style={{ padding: '5px 10px', fontSize: '12px' }}
@@ -478,7 +488,7 @@ function App() {
                 style={{ padding: '5px 10px', fontSize: '12px' }}
               >
                 설정확인
-              </button>
+              </button> */}
               <button
                 className="test-notification-button"
                 onClick={handleShowLocalStamps}
@@ -486,13 +496,13 @@ function App() {
               >
                 로컬 스탬프 정보 출력
               </button>
-              <button
+              {/* <button
                 className="test-notification-button"
                 onClick={handleUnsubscribeNotifications}
                 style={{ padding: '5px 10px', fontSize: '12px', background: '#ffe4e8', color: '#ff4757' }}
               >
                 알림 거부
-              </button>
+              </button> */}
               <button
                 className="test-notification-button"
                 onClick={handleRemoveTodayStamp}
